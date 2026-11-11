@@ -51,6 +51,9 @@ jobs:
   linux:
     name: Linux tests, sanitizers and pluginval
     runs-on: ubuntu-24.04
+    # Secondary check (the product is Windows-only). GitHub's Linux runners have had
+    # DNS failures reaching Ubuntu package servers; do not let that block the Windows build.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
