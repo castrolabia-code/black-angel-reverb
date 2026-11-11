@@ -1,0 +1,84 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows x64 VST3 (Release)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Visual Studio 2022, x64)
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build plugin and tests (Release)
+        run: cmake --build build --config Release --parallel
+
+      - name: DSP tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Download pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+
+      - name: pluginval (strictness 10)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path qa | Out-Null
+          $vst3 = "build/Source/BlackAngel_artefacts/Release/VST3/KB REVERB - BLACK ANGEL.vst3"
+          ./pluginval/pluginval.exe --strictness-level 10 --validate-in-process --timeout-ms 600000 --output-dir qa "$vst3" | Tee-Object -FilePath qa/pluginval-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: KB-REVERB-BLACK-ANGEL-VST3-Windows-x64
+          path: build/Source/BlackAngel_artefacts/Release/VST3/
+
+      - name: Upload QA logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-windows
+          path: qa/
+
+  linux:
+    name: Linux tests, sanitizers and pluginval
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libgl-dev xvfb
+
+      - name: Build plugin and tests
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: DSP tests
+        run: ./build/Tests/BlackAngelDSPTests
+
+      - name: DSP tests with AddressSanitizer + UBSan
+        run: |
+          cmake -S . -B build-asan -G Ninja -DBA_BUILD_PLUGIN=OFF -DBA_SANITIZE=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build-asan --parallel
+          ./build-asan/Tests/BlackAngelDSPTests
+
+      - name: pluginval (strictness 10)
+        run: |
+          curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Linux.zip
+          unzip -q pv.zip
+          mkdir -p qa
+          xvfb-run -a ./pluginval --strictness-level 10 --validate-in-process --timeout-ms 600000 \
+            "build/Source/BlackAngel_artefacts/Release/VST3/KB REVERB - BLACK ANGEL.vst3" | tee qa/pluginval-linux.txt
+          test ${PIPESTATUS[0]} -eq 0
