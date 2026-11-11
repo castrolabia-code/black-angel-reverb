@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   windows:
     name: Windows x64 VST3 (Release)
@@ -47,6 +50,36 @@ jobs:
         with:
           name: qa-windows
           path: qa/
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc /DAppVersion=0.2.0 Installer\BlackAngel.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KB-Reverb-Black-Angel-Setup
+          path: Installer/Output/KB-Reverb-Black-Angel-Setup.exe
+
+      # Public test download with a fixed link (no GitHub login needed):
+      # https://github.com/castrolabia-code/black-angel-reverb/releases/download/prueba/KB-Reverb-Black-Angel-Setup.exe
+      - name: Publish test release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete prueba --yes --cleanup-tag || true
+          gh release create prueba Installer/Output/KB-Reverb-Black-Angel-Setup.exe \
+            --prerelease --target "${{ github.sha }}" \
+            --title "Versión de prueba (${GITHUB_REF_NAME})" \
+            --notes "Instalador de prueba generado automáticamente. Descarga KB-Reverb-Black-Angel-Setup.exe, ábrelo y pulsa Siguiente. Si Windows muestra 'Windows protegió su PC', pulsa 'Más información' y luego 'Ejecutar de todas formas'."
 
   linux:
     name: Linux tests, sanitizers and pluginval

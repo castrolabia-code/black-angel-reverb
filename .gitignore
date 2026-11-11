@@ -5,3 +5,4 @@ out/
 *.user
 CMakeUserPresets.json
 .DS_Store
+Installer/Output/
